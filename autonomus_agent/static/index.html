@@ -1,0 +1,35 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Agent Demo</title><style>
+:root{--bg:#fff;--fg:#1a1a1a;--mut:#6b7280;--card:#f5f6f8;--acc:#4f46e5;--ok:#15803d;--bad:#b91c1c}
+@media(prefers-color-scheme:dark){:root{--bg:#111318;--fg:#eceef2;--mut:#9aa0ab;--card:#1b1e26;--acc:#818cf8;--ok:#4ade80;--bad:#f87171}}
+body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.5 system-ui,sans-serif}
+main{max-width:720px;margin:0 auto;padding:32px 16px}h1{font-size:1.4rem}
+form{display:flex;gap:8px;flex-wrap:wrap}input[type=text]{flex:1;min-width:200px;padding:10px 12px;border-radius:8px;border:1px solid var(--mut);background:var(--card);color:var(--fg)}
+button{padding:10px 18px;border:0;border-radius:8px;background:var(--acc);color:#fff;font-weight:600;cursor:pointer}
+label{font-size:.9rem;color:var(--mut);display:flex;align-items:center;gap:6px;width:100%}
+.ex button{background:var(--card);color:var(--fg);font-weight:400;padding:4px 10px;margin:8px 6px 0 0;font-size:.85rem}
+ol{list-style:none;padding:0;margin:20px 0}li{background:var(--card);border-left:4px solid var(--acc);padding:8px 12px;margin:6px 0;border-radius:6px;font-size:.92rem}
+li.tool{border-color:var(--ok)}li.bad{border-color:var(--bad)}li.mem{border-color:var(--mut)}pre{margin:4px 0 0;white-space:pre-wrap;color:var(--mut);font-size:.82rem}
+#answer{background:var(--card);padding:14px;border-radius:8px;white-space:pre-wrap;min-height:1em}.v{font-weight:700}
+</style></head><body><main>
+<h1>Autonomous Agent: plan, execute, verify</h1>
+<form id="f"><input id="q" type="text" value="Calculate 12*7+3" aria-label="Task"><button>Run</button>
+<label><input type="checkbox" id="fail"> Simulate tool outage (calculator and SQL fail)</label></form>
+<div class="ex"></div><ol id="tl"></ol><div id="answer" aria-live="polite"></div>
+<script>
+const $=s=>document.querySelector(s),esc=s=>String(s).replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+["Calculate 12*7+3","Total sales by region","How does the verifier work?","What is the refund policy?","Tell me something"].forEach(t=>{
+ const b=document.createElement("button");b.type="button";b.textContent=t;b.onclick=()=>{$("#q").value=t};$(".ex").append(b)});
+$("#f").onsubmit=async e=>{e.preventDefault();const tl=$("#tl"),ans=$("#answer");tl.innerHTML="";ans.textContent="Running…";
+ try{const r=await fetch("/runs/stream",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({task:$("#q").value,simulate_failure:$("#fail").checked})});
+ if(!r.ok){ans.textContent="Request failed ("+r.status+")";return}
+ const rd=r.body.getReader(),dec=new TextDecoder();let buf="";
+ while(true){const{value,done}=await rd.read();if(done)break;buf+=dec.decode(value,{stream:true});const fr=buf.split("\n\n");buf=fr.pop();
+  for(const f of fr){const m=f.match(/data: (.*)/s);if(!m)continue;const d=JSON.parse(m[1]);
+   if(d.event==="node")tl.insertAdjacentHTML("beforeend",`<li>${esc(d.name)}${d.reason?": "+esc(d.reason):""}</li>`);
+   if(d.event==="memory")tl.insertAdjacentHTML("beforeend",`<li class="mem">recalled: ${esc(d.hits.join("; "))}</li>`);
+   if(d.event==="tool")tl.insertAdjacentHTML("beforeend",`<li class="tool ${d.ok?"":"bad"}">🔧 ${esc(d.name)} (${d.latency_ms} ms)<pre>${esc(d.output)}</pre></li>`);
+   if(d.event==="done")ans.innerHTML=`<span class="v" style="color:var(--${d.verdict==="pass"?"ok":"bad"})">${d.verdict.toUpperCase()}</span> · ${d.steps} step(s) · ${d.latency_s}s\n\n`+esc(d.answer);
+   if(d.event==="error")ans.textContent=d.message}}
+ }catch(err){ans.textContent="Network error: "+err.message}};
+</script></main></body></html>
